@@ -1,0 +1,6 @@
+{
+  "name": "MBA Timetable",
+  "description": "Automatically retrieves and generates weekly timetable PNG images from SharePoint schedules for MBA Batch 17 Trim I (Division A).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
