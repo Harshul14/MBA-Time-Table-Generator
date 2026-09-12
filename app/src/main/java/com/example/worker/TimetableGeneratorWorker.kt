@@ -65,9 +65,11 @@ class TimetableGeneratorWorker(
             return@withContext Result.success()
         }
 
+        val selectedDiv = repository.getSelectedDivision(applicationContext)
+
         // 5. Generate PNG
         val pngPath = try {
-            PngRenderer.renderWeeklyTimetable(applicationContext, targetWeekStart, entries)
+            PngRenderer.renderWeeklyTimetable(applicationContext, targetWeekStart, entries, selectedDiv)
         } catch (e: Exception) {
             e.printStackTrace()
             return@withContext Result.retry()
@@ -83,7 +85,7 @@ class TimetableGeneratorWorker(
 
         // 7. Push notification
         val weekRangeStr = DateUtils.formatWeekRange(targetWeekStart, targetWeekEnd)
-        NotificationHelper.showTimetableReadyNotification(applicationContext, weekRangeStr)
+        NotificationHelper.showTimetableReadyNotification(applicationContext, weekRangeStr, selectedDiv)
 
         return@withContext Result.success()
     }

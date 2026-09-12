@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Context
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -128,6 +129,15 @@ fun HomeScreen(viewModel: TimetableViewModel, navController: NavController) {
     val detectedTrimester by viewModel.detectedTrimester.collectAsState()
     val selectedDivision by viewModel.selectedDivision.collectAsState()
     val availableDivisions by viewModel.availableDivisions.collectAsState()
+    val successMsg by viewModel.success.collectAsState()
+    val errorMsg by viewModel.error.collectAsState()
+
+    LaunchedEffect(successMsg) {
+        successMsg?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+    }
+    LaunchedEffect(errorMsg) {
+        errorMsg?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+    }
 
     if (isParsing) LoadingDialog(message = "Generating timetable PNG…")
     if (isSyncing) LoadingDialog(message = "Fetching & parsing MBA Batch 17 $detectedTrimester from SharePoint…")
@@ -877,7 +887,7 @@ fun SettingsScreen(viewModel: TimetableViewModel) {
                         Button(
                             onClick = {
                                 TimetableGeneratorWorker.schedulePeriodicWork(context)
-                                NotificationHelper.showTimetableReadyNotification(context, "MBA Batch 17 $detectedTrimester Ready")
+                                NotificationHelper.showTimetableReadyNotification(context, "MBA Batch 17 $detectedTrimester", selectedDivision)
                             },
                             modifier = Modifier.fillMaxWidth().testTag("register_auto_check_button")
                         ) { Text("Re-Register Auto-Check Work") }
@@ -891,7 +901,7 @@ fun SettingsScreen(viewModel: TimetableViewModel) {
                 Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(
-                            onClick = { NotificationHelper.showTimetableReadyNotification(context, "MBA Batch 17 $detectedTrimester (Demo)") },
+                            onClick = { NotificationHelper.showTimetableReadyNotification(context, "MBA Batch 17 $detectedTrimester", selectedDivision) },
                             modifier = Modifier.fillMaxWidth().testTag("trigger_demo_notification_button"),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                         ) {
