@@ -514,6 +514,11 @@ fun TimetableScreen(viewModel: TimetableViewModel) {
     val weekEnd = viewedWeekStart.plusDays(6)
     val weekRangeStr = DateUtils.formatWeekRange(viewedWeekStart, weekEnd)
 
+    // Auto-reload entries whenever the selected division or viewed week changes
+    LaunchedEffect(selectedDivision, viewedWeekStart) {
+        viewModel.refreshCurrentView()
+    }
+
     if (isParsing || isRegenerating) LoadingDialog(message = if (isRegenerating) "Re-generating timetable image…" else "Generating timetable PNG…")
 
     Scaffold(
@@ -521,6 +526,17 @@ fun TimetableScreen(viewModel: TimetableViewModel) {
             LargeTopAppBar(
                 title = { Text("Division $selectedDivision Timetable", fontWeight = FontWeight.Bold) },
                 actions = {
+                    // Explicit reload button — useful after switching division from HomeScreen
+                    IconButton(
+                        onClick = { viewModel.refreshCurrentView() },
+                        modifier = Modifier.testTag("timetable_refresh_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Reload timetable for current division",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     Box(
                         modifier = Modifier.padding(end = 16.dp).size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
                         contentAlignment = Alignment.Center
