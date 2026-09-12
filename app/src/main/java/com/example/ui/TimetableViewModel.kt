@@ -120,7 +120,7 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
                 _activeFile.value = active
                 _lastSyncTime.value = repository.getLastSyncTime(context)
                 if (!isSilent) {
-                    _success.value = "Timetable synced directly from SharePoint for MBA Batch 17 Trim I (Division A)!"
+                    _success.value = "Timetable synced directly from SharePoint for MBA Batch 17 Trim II (Division A)!"
                 }
                 loadWeekEntriesAndSchedule(active.id, _viewedWeekStartDate.value)
             } catch (e: Exception) {
@@ -146,7 +146,7 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
     fun resetLiveUrlToDefault(context: Context) {
         repository.setSavedLiveUrl(context, RemoteScheduleFetcher.DEFAULT_SHAREPOINT_URL)
         _liveUrl.value = RemoteScheduleFetcher.DEFAULT_SHAREPOINT_URL
-        _success.value = "Reset to official MBA Batch 17 Trim I link."
+        _success.value = "Reset to official MBA Batch 17 Trim II link."
     }
 
     fun uploadExcelFile(context: Context, uri: Uri, fileName: String) {
@@ -157,7 +157,7 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
             try {
                 val active = repository.importExcelFile(context, uri, fileName)
                 _activeFile.value = active
-                _success.value = "Excel uploaded and MBA Batch 17 Trim I (Division A) parsed successfully."
+                _success.value = "Excel uploaded and MBA Batch 17 Trim II (Division A) parsed successfully."
                 loadWeekEntriesAndSchedule(active.id, _viewedWeekStartDate.value)
             } catch (e: Exception) {
                 _error.value = e.message ?: "Failed to parse uploaded Excel file. Ensure headers are correct."

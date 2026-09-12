@@ -39,14 +39,14 @@ object ExcelParser {
             val sheetCount = workbook.numberOfSheets
             Log.d(TAG, "Parsing Excel workbook with $sheetCount sheet(s)...")
 
-            // 1. Identify which sheets belong to "MBA Batch 17 Trim I"
+            // 1. Identify which sheets belong to "MBA Batch 17 Trim II"
             val targetSheets = mutableListOf<Sheet>()
             for (i in 0 until sheetCount) {
                 val sheet = workbook.getSheetAt(i)
                 val sheetName = sheet.sheetName
                 if (isBatch17Trim1Sheet(sheetName, sheet)) {
                     targetSheets.add(sheet)
-                    Log.d(TAG, "Found target sheet for MBA Batch 17 Trim I: '$sheetName'")
+                    Log.d(TAG, "Found target sheet for MBA Batch 17 Trim II: '$sheetName'")
                 }
             }
 
@@ -88,7 +88,7 @@ object ExcelParser {
     }
 
     /**
-     * Checks if a sheet name or its header title belongs to "MBA Batch 17 Trim I".
+     * Checks if a sheet name or its header title belongs to "MBA Batch 17 Trim II".
      */
     private fun isBatch17Trim1Sheet(sheetName: String, sheet: Sheet): Boolean {
         val clean = sheetName.uppercase(Locale.US).replace(Regex("[^A-Z0-9]"), " ")
