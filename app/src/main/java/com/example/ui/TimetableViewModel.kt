@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.local.GeneratedSchedule
 import com.example.data.local.TimetableEntry
 import com.example.data.local.UploadedFile
+import com.example.data.parser.ExcelParser
 import com.example.data.remote.RemoteScheduleFetcher
 import com.example.data.repository.TimetableRepository
 import com.example.utils.DateUtils
@@ -47,12 +48,12 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
     private val _detectedTrimester = MutableStateFlow("Trim (Auto)")
     val detectedTrimester: StateFlow<String> = _detectedTrimester.asStateFlow()
 
-    /** The division letter currently selected by the user, e.g. "A", "B". */
-    private val _selectedDivision = MutableStateFlow("A")
+    /** The division letter configured for this build (from ExcelParser.DEFAULT_DIVISION). */
+    private val _selectedDivision = MutableStateFlow(ExcelParser.DEFAULT_DIVISION)
     val selectedDivision: StateFlow<String> = _selectedDivision.asStateFlow()
 
-    /** All division letters found in the active workbook. */
-    private val _availableDivisions = MutableStateFlow<List<String>>(listOf("A"))
+    /** Available divisions (defaults to configured division). */
+    private val _availableDivisions = MutableStateFlow<List<String>>(listOf(ExcelParser.DEFAULT_DIVISION))
     val availableDivisions: StateFlow<List<String>> = _availableDivisions.asStateFlow()
 
     // ─── Loading & messaging states ───────────────────────────────
@@ -86,8 +87,8 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
         _liveUrl.value = repository.getSavedLiveUrl(context)
         _lastSyncTime.value = repository.getLastSyncTime(context)
         _detectedTrimester.value = repository.getDetectedTrimester(context)
-        _selectedDivision.value = repository.getSelectedDivision(context)
-        _availableDivisions.value = repository.getAvailableDivisions(context)
+        _selectedDivision.value = ExcelParser.DEFAULT_DIVISION
+        _availableDivisions.value = listOf(ExcelParser.DEFAULT_DIVISION)
     }
 
     private fun loadActiveFileAndSchedule() {
@@ -137,11 +138,11 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
                 val result = repository.syncFromRemoteUrl(context, urlToUse)
                 _activeFile.value = result.uploadedFile
                 _detectedTrimester.value = result.detectedTrimester
-                _availableDivisions.value = result.availableDivisions.ifEmpty { listOf(_selectedDivision.value) }
+                _availableDivisions.value = listOf(ExcelParser.DEFAULT_DIVISION)
                 _lastSyncTime.value = repository.getLastSyncTime(context)
 
                 if (!isSilent) {
-                    _success.value = "Synced! MBA Batch 17 ${result.detectedTrimester} (Division ${_selectedDivision.value})"
+                    _success.value = "Synced! MBA Batch 17 ${result.detectedTrimester} (Division ${ExcelParser.DEFAULT_DIVISION})"
                 }
                 loadWeekEntriesAndSchedule(result.uploadedFile.id, _viewedWeekStartDate.value)
 
@@ -175,54 +176,11 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
     }
 
     // ─────────────────────────────────────────────────────────────
-    // Division selection (Feature 3)
+    // Division selection
     // ─────────────────────────────────────────────────────────────
 
-    /**
-     * Switches to a different division, re-parses the active file, and pre-loads the correct
-     * entries before announcing the new division to the UI.
-     *
-     * Ordering matters: _selectedDivision is updated LAST so that any LaunchedEffect
-     * observing it in the Timetable screen fires only after _selectedWeekEntries already
-     * contains the correct division's data — eliminating the stale-data race condition.
-     */
     fun selectDivision(context: Context, division: String) {
-        if (division == _selectedDivision.value) return
-        viewModelScope.launch {
-            repository.setSelectedDivision(context, division)
-            _isParsing.value = true
-            _error.value = null
-            try {
-                val result = repository.reparseActiveFile(context)
-                val active = _activeFile.value
-
-                if (result != null && active != null) {
-                    _detectedTrimester.value = result.detectedTrimester
-                    _availableDivisions.value = result.availableDivisions.ifEmpty { listOf(division) }
-
-                    // Pre-load the new division's entries directly (suspend, not fire-and-forget)
-                    // so the StateFlow is up-to-date before we flip _selectedDivision.
-                    val weekStart = _viewedWeekStartDate.value
-                    val startStr = DateUtils.formatDateToStandard(weekStart)
-                    val endStr = DateUtils.formatDateToStandard(weekStart.plusDays(6))
-                    _selectedWeekEntries.value = repository.getEntriesForWeek(active.id, startStr, endStr)
-                    _currentGeneratedSchedule.value = repository.getScheduleForWeek(startStr)
-                } else {
-                    // Division has no records in this Excel — clear the grid so stale
-                    // data from the previous division is not shown.
-                    _selectedWeekEntries.value = emptyList()
-                    _currentGeneratedSchedule.value = null
-                }
-            } catch (e: Exception) {
-                _error.value = "Failed to switch division: ${e.message}"
-                _selectedWeekEntries.value = emptyList()
-            } finally {
-                // Update the division label LAST — this is what triggers LaunchedEffect
-                // in TimetableScreen.  By this point _selectedWeekEntries is already correct.
-                _selectedDivision.value = division
-                _isParsing.value = false
-            }
-        }
+        // Division is configured via ExcelParser.DEFAULT_DIVISION
     }
 
 

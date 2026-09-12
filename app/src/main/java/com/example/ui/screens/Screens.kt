@@ -127,7 +127,6 @@ fun HomeScreen(viewModel: TimetableViewModel, navController: NavController) {
     val selectedWeekEntries by viewModel.selectedWeekEntries.collectAsState()
     val detectedTrimester by viewModel.detectedTrimester.collectAsState()
     val selectedDivision by viewModel.selectedDivision.collectAsState()
-    val availableDivisions by viewModel.availableDivisions.collectAsState()
 
     if (isParsing) LoadingDialog(message = "Generating timetable PNG…")
     if (isSyncing) LoadingDialog(message = "Fetching & parsing MBA Batch 17 $detectedTrimester from SharePoint…")
@@ -161,28 +160,6 @@ fun HomeScreen(viewModel: TimetableViewModel, navController: NavController) {
             modifier = Modifier.fillMaxSize().padding(paddingValues).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // ── Division Selector (Feature 3) ──────────────────────
-            if (availableDivisions.size > 1) {
-                item {
-                    Column(modifier = Modifier.padding(top = 4.dp)) {
-                        Text(text = "Select Division", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp))
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            availableDivisions.forEach { div ->
-                                FilterChip(
-                                    selected = div == selectedDivision,
-                                    onClick = { viewModel.selectDivision(context, div) },
-                                    label = { Text("Division $div") },
-                                    modifier = Modifier.testTag("division_chip_$div")
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
             // ── SharePoint Sync Status Card ─────────────────────────
             item {
                 Card(
