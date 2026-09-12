@@ -59,7 +59,7 @@ class TimetableRepository(private val db: AppDatabase) {
         val downloadedFile = RemoteScheduleFetcher.downloadTimetableFile(context, urlString)
 
         // 2. Prepare database entry
-        val displayName = "MBA Batch 17 Trim I (Live SharePoint)"
+        val displayName = "MBA Batch 17 Trim II (Live SharePoint)"
         val newUploadedFile = UploadedFile(
             fileName = displayName,
             filePath = downloadedFile.absolutePath,
@@ -70,7 +70,7 @@ class TimetableRepository(private val db: AppDatabase) {
         val fileId = uploadedFileDao.insertFile(newUploadedFile).toInt()
         val activeFile = newUploadedFile.copy(id = fileId)
 
-        // 3. Parse entries targeting MBA Batch 17 Trim I, Division A
+        // 3. Parse entries targeting MBA Batch 17 Trim II, Division A
         val parsedEntries = try {
             ExcelParser.parseExcelFile(downloadedFile, fileId)
         } catch (e: Exception) {
@@ -82,7 +82,7 @@ class TimetableRepository(private val db: AppDatabase) {
         if (parsedEntries.isEmpty()) {
             uploadedFileDao.deleteFileById(fileId)
             downloadedFile.delete()
-            throw IllegalStateException("No valid schedule records found for MBA Batch 17 Trim I (Division A) in the SharePoint document.")
+            throw IllegalStateException("No valid schedule records found for MBA Batch 17 Trim II (Division A) in the SharePoint document.")
         }
 
         // 4. Save parsed entries to DB
@@ -136,7 +136,7 @@ class TimetableRepository(private val db: AppDatabase) {
         if (parsedEntries.isEmpty()) {
             uploadedFileDao.deleteFileById(fileId)
             localFile.delete()
-            throw IllegalStateException("No valid schedule records found for MBA Batch 17 Trim I (Division A) in the uploaded Excel.")
+            throw IllegalStateException("No valid schedule records found for MBA Batch 17 Trim II (Division A) in the uploaded Excel.")
         }
 
         // Insert into database

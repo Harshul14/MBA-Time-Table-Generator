@@ -135,7 +135,7 @@ fun SplashScreen(navController: NavController) {
                 modifier = Modifier.padding(top = 8.dp)
             ) {
                 Text(
-                    text = "MBA Batch 17 Trim I • Division A",
+                    text = "MBA Batch 17 Trim II • Division A",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -171,7 +171,7 @@ fun HomeScreen(
     }
 
     if (isSyncing) {
-        LoadingDialog(message = "Fetching & parsing MBA Batch 17 Trim I from SharePoint...")
+        LoadingDialog(message = "Fetching & parsing MBA Batch 17 Trim II from SharePoint...")
     }
 
     Scaffold(
@@ -268,7 +268,7 @@ fun HomeScreen(
                                     color = if (activeFile != null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = if (activeFile != null) "Target: MBA Batch 17 Trim I • Div A" else "Tap below to auto-fetch from SharePoint link",
+                                    text = if (activeFile != null) "Target: MBA Batch 17 Trim II • Div A" else "Tap below to auto-fetch from SharePoint link",
                                     fontSize = 13.sp,
                                     color = if (activeFile != null) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                     maxLines = 1,
@@ -554,7 +554,7 @@ fun UploadExcelScreen(
     }
 
     if (isParsing) {
-        LoadingDialog(message = "Reading Excel sheet & extracting MBA Batch 17 Trim I...")
+        LoadingDialog(message = "Reading Excel sheet & extracting MBA Batch 17 Trim II...")
     }
 
     if (isSyncing) {
@@ -629,7 +629,7 @@ fun UploadExcelScreen(
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
-                                text = "MBA Batch 17 Trim I • Division A",
+                                text = "MBA Batch 17 Trim II • Division A",
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold
@@ -1038,7 +1038,7 @@ fun TimetableScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "No schedule records found for MBA Batch 17 Trim I (Division A) in this week.",
+                            text = "No schedule records found for MBA Batch 17 Trim II (Division A) in this week.",
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                             textAlign = TextAlign.Center
@@ -1253,7 +1253,7 @@ fun SettingsScreen(
                         ) {
                             Icon(Icons.Default.Share, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Text(
-                                text = "MBA Batch 17 Trim I Source",
+                                text = "MBA Batch 17 Trim II Source",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
                             )
@@ -1337,7 +1337,7 @@ fun SettingsScreen(
                         Button(
                             onClick = {
                                 TimetableGeneratorWorker.schedulePeriodicWork(context)
-                                NotificationHelper.showTimetableReadyNotification(context, "MBA Batch 17 Trim I Ready")
+                                NotificationHelper.showTimetableReadyNotification(context, "MBA Batch 17 Trim II Ready")
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1373,7 +1373,7 @@ fun SettingsScreen(
                             onClick = {
                                 NotificationHelper.showTimetableReadyNotification(
                                     context,
-                                    "MBA Batch 17 Trim I (Demo)"
+                                    "MBA Batch 17 Trim II (Demo)"
                                 )
                             },
                             modifier = Modifier
@@ -1419,13 +1419,13 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Created to automatically fetch public NMIMS SharePoint timetables for MBA Batch 17 Trim I and convert Division A records into mobile-friendly shareable weekly grid PNG files.",
+                            text = "Created to automatically fetch public NMIMS SharePoint timetables for MBA Batch 17 Trim II and convert Division A records into mobile-friendly shareable weekly grid PNG files.",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "App Version: 1.1.0 • MBA Batch 17 Trim I",
+                            text = "App Version: 1.1.0 • MBA Batch 17 Trim II",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                         )
