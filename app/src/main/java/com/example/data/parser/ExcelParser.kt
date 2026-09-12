@@ -17,6 +17,16 @@ object ExcelParser {
     private const val TAG = "ExcelParser"
 
     /**
+     * ─────────────────────────────────────────────────────────────────────────
+     * DIVISION CONFIGURATION — THE ONLY PLACE YOU NEED TO CHANGE
+     * ─────────────────────────────────────────────────────────────────────────
+     * Change this letter to switch the entire app to a different division.
+     * Valid values: "A", "B", "C", "D", "E" (must match what is in the Excel).
+     * ─────────────────────────────────────────────────────────────────────────
+     */
+    const val DEFAULT_DIVISION = "A"
+
+    /**
      * Result returned from all parse entry-points.
      * @param entries Filtered timetable entries for the selected division.
      * @param detectedTrimester Human-readable label e.g. "Trim II", "Trim IV".
@@ -36,7 +46,7 @@ object ExcelParser {
         context: Context,
         uri: Uri,
         fileId: Int,
-        selectedDivision: String = "A"
+        selectedDivision: String = DEFAULT_DIVISION
     ): ParseResult {
         val inputStream: InputStream = context.contentResolver.openInputStream(uri)
             ?: throw IllegalArgumentException("Could not open input stream from Uri: $uri")
@@ -46,7 +56,7 @@ object ExcelParser {
     fun parseExcelFile(
         file: File,
         fileId: Int,
-        selectedDivision: String = "A"
+        selectedDivision: String = DEFAULT_DIVISION
     ): ParseResult {
         if (!file.exists() || file.length() == 0L)
             throw IllegalArgumentException("File does not exist or is empty: ${file.absolutePath}")
@@ -56,7 +66,7 @@ object ExcelParser {
     fun parseExcelStream(
         inputStream: InputStream,
         fileId: Int,
-        selectedDivision: String = "A"
+        selectedDivision: String = DEFAULT_DIVISION
     ): ParseResult {
         val entries = mutableListOf<TimetableEntry>()
         var detectedTrimester = "Trim (Auto)"
@@ -242,7 +252,7 @@ object ExcelParser {
     private fun parseSheet(
         sheet: Sheet,
         fileId: Int,
-        selectedDivision: String
+        selectedDivision: String = DEFAULT_DIVISION
     ): Pair<List<TimetableEntry>, Set<String>> {
         val entries = mutableListOf<TimetableEntry>()
         val seenDivisions = mutableSetOf<String>()
@@ -363,12 +373,31 @@ object ExcelParser {
     }
 
     /**
-     * Returns true when [divStr] from the spreadsheet cell matches the [targetDiv] letter.
+     * Matches the division cell value against [targetDiv] (defaults to [DEFAULT_DIVISION]).
+     * Restores the exact matching logic that worked reliably earlier.
      */
-    private fun matchesDivision(divStr: String, targetDiv: String): Boolean {
+    private fun matchesDivision(divStr: String, targetDiv: String = DEFAULT_DIVISION): Boolean {
+        val clean = divStr.trim().uppercase(Locale.US)
+        val target = targetDiv.trim().uppercase(Locale.US)
+        if (clean == target ||
+            clean == "DIV $target" ||
+            clean == "DIVISION $target" ||
+            clean == "DIV-$target" ||
+            clean == "DIV$target" ||
+            clean.contains("DIV $target") ||
+            clean.startsWith("DIV $target") ||
+            clean.startsWith("DIV-$target") ||
+            clean.startsWith("DIVISION $target") ||
+            clean.endsWith(" $target") ||
+            clean.contains("DIV. $target") ||
+            clean.contains("SEC $target") ||
+            clean.contains("SECTION $target") ||
+            clean == "DIVISION-$target"
+        ) {
+            return true
+        }
         val normalized = normalizeDiv(divStr)
-        if (normalized.isEmpty()) return false
-        return normalized == targetDiv.trim().uppercase(Locale.US)
+        return normalized == target
     }
 
     /** Finds the 0-based column index of the Division column, or null if not found. */

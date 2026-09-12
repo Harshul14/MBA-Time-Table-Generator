@@ -247,20 +247,14 @@ class TimetableRepository(private val db: AppDatabase) {
             .edit().putString(KEY_DETECTED_TRIMESTER, trimester).apply()
     }
 
-    fun getSelectedDivision(context: Context): String =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_SELECTED_DIVISION, "A") ?: "A"
+    fun getSelectedDivision(context: Context): String = ExcelParser.DEFAULT_DIVISION
 
     fun setSelectedDivision(context: Context, division: String) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putString(KEY_SELECTED_DIVISION, division).apply()
     }
 
-    fun getAvailableDivisions(context: Context): List<String> {
-        val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_AVAILABLE_DIVISIONS, "A") ?: "A"
-        return raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.sorted()
-    }
+    fun getAvailableDivisions(context: Context): List<String> = listOf(ExcelParser.DEFAULT_DIVISION)
 
     fun setAvailableDivisions(context: Context, divisions: List<String>) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
