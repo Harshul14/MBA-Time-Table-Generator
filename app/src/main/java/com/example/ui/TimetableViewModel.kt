@@ -87,8 +87,8 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
         _liveUrl.value = repository.getSavedLiveUrl(context)
         _lastSyncTime.value = repository.getLastSyncTime(context)
         _detectedTrimester.value = repository.getDetectedTrimester(context)
-        _selectedDivision.value = ExcelParser.DEFAULT_DIVISION
-        _availableDivisions.value = listOf(ExcelParser.DEFAULT_DIVISION)
+        _selectedDivision.value = repository.getSelectedDivision(context)
+        _availableDivisions.value = repository.getAvailableDivisions(context)
     }
 
     private fun loadActiveFileAndSchedule() {
@@ -138,11 +138,11 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
                 val result = repository.syncFromRemoteUrl(context, urlToUse)
                 _activeFile.value = result.uploadedFile
                 _detectedTrimester.value = result.detectedTrimester
-                _availableDivisions.value = listOf(ExcelParser.DEFAULT_DIVISION)
+                _availableDivisions.value = result.availableDivisions.ifEmpty { listOf(_selectedDivision.value) }
                 _lastSyncTime.value = repository.getLastSyncTime(context)
 
                 if (!isSilent) {
-                    _success.value = "Synced! MBA Batch 17 ${result.detectedTrimester} (Division ${ExcelParser.DEFAULT_DIVISION})"
+                    _success.value = "Synced! MBA Batch 17 ${result.detectedTrimester} (Division ${_selectedDivision.value})"
                 }
                 loadWeekEntriesAndSchedule(result.uploadedFile.id, _viewedWeekStartDate.value)
 
@@ -180,7 +180,36 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
     // ─────────────────────────────────────────────────────────────
 
     fun selectDivision(context: Context, division: String) {
-        // Division is configured via ExcelParser.DEFAULT_DIVISION
+        if (division == _selectedDivision.value) return
+        viewModelScope.launch {
+            repository.setSelectedDivision(context, division)
+            _isParsing.value = true
+            _error.value = null
+            try {
+                val result = repository.reparseActiveFile(context)
+                val active = _activeFile.value
+
+                if (result != null && active != null) {
+                    _detectedTrimester.value = result.detectedTrimester
+                    _availableDivisions.value = result.availableDivisions.ifEmpty { listOf(division) }
+
+                    val weekStart = _viewedWeekStartDate.value
+                    val startStr = DateUtils.formatDateToStandard(weekStart)
+                    val endStr = DateUtils.formatDateToStandard(weekStart.plusDays(6))
+                    _selectedWeekEntries.value = repository.getEntriesForWeek(active.id, startStr, endStr)
+                    _currentGeneratedSchedule.value = repository.getScheduleForWeek(startStr)
+                } else {
+                    _selectedWeekEntries.value = emptyList()
+                    _currentGeneratedSchedule.value = null
+                }
+            } catch (e: Exception) {
+                _error.value = "Failed to switch division: ${e.message}"
+                _selectedWeekEntries.value = emptyList()
+            } finally {
+                _selectedDivision.value = division
+                _isParsing.value = false
+            }
+        }
     }
 
 

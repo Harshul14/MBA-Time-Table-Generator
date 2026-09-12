@@ -305,15 +305,14 @@ object ExcelParser {
             return Pair(emptyList(), emptySet())
         }
 
+        var lastSeenDay = ""
+        var lastSeenDate: String? = null
+
         // Parse data rows
         while (rowIterator.hasNext()) {
             val row = rowIterator.next()
-            val divVal = getCellValueAsString(row.getCell(divCol))
-            val normalized = normalizeDiv(divVal)
-            if (normalized.isNotEmpty()) seenDivisions.add(normalized)
 
-            if (!matchesDivision(divVal, selectedDivision)) continue
-
+            // Extract or carry-forward date and day (Day and Date columns are vertically merged across divisions)
             val dayVal = getCellValueAsString(row.getCell(dayCol)).trim()
             val dateCell = row.getCell(dateCol)
             val rawDateVal = getCellValueAsString(dateCell).trim()
@@ -322,8 +321,33 @@ object ExcelParser {
             if (dateCell != null && dateCell.cellType == CellType.NUMERIC && DateUtil.isCellDateFormatted(dateCell)) {
                 try { normalizedDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(dateCell.dateCellValue) } catch (_: Exception) { }
             }
-            if (normalizedDate == null) normalizedDate = DateUtils.normalizeDate(rawDateVal)
-            if (normalizedDate == null) continue
+            if (normalizedDate == null && dateCell != null && dateCell.cellType == CellType.NUMERIC) {
+                try {
+                    if (DateUtil.isValidExcelDate(dateCell.numericCellValue)) {
+                        normalizedDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(DateUtil.getJavaDate(dateCell.numericCellValue))
+                    }
+                } catch (_: Exception) { }
+            }
+            if (normalizedDate == null && rawDateVal.isNotEmpty()) {
+                normalizedDate = DateUtils.normalizeDate(rawDateVal)
+            }
+
+            if (normalizedDate != null) {
+                lastSeenDate = normalizedDate
+                lastSeenDay = if (dayVal.isNotEmpty()) dayVal else DateUtils.getDayOfWeekName(normalizedDate)
+            } else if (dayVal.isNotEmpty()) {
+                lastSeenDay = dayVal
+            }
+
+            val effectiveDate = normalizedDate ?: lastSeenDate
+            val effectiveDay = if (dayVal.isNotEmpty()) dayVal else lastSeenDay
+
+            val divVal = getCellValueAsString(row.getCell(divCol)).trim()
+            val normalized = normalizeDiv(divVal)
+            if (normalized.isNotEmpty()) seenDivisions.add(normalized)
+
+            if (effectiveDate == null) continue
+            if (!matchesDivision(divVal, selectedDivision)) continue
 
             val roomNo = (if (roomCol != -1) getCellValueAsString(row.getCell(roomCol)).trim() else "").ifEmpty { "TBA" }
 
@@ -334,13 +358,13 @@ object ExcelParser {
             val finalSlot4 = slot(slot4Col).ifEmpty { "Free Slot" }
             val finalSlot5 = slot(slot5Col).ifEmpty { "Free Slot" }
 
-            if (dayVal.isEmpty() && finalSlot1 == "Free Slot" && finalSlot2 == "Free Slot" && finalSlot3 == "Free Slot") continue
+            if (effectiveDay.isEmpty() && finalSlot1 == "Free Slot" && finalSlot2 == "Free Slot" && finalSlot3 == "Free Slot") continue
 
             entries.add(
                 TimetableEntry(
                     fileId = fileId,
-                    day = if (dayVal.isEmpty()) DateUtils.getDayOfWeekName(normalizedDate) else dayVal,
-                    date = normalizedDate,
+                    day = if (effectiveDay.isEmpty()) DateUtils.getDayOfWeekName(effectiveDate) else effectiveDay,
+                    date = effectiveDate,
                     roomNo = roomNo,
                     div = "Division ${selectedDivision.uppercase(Locale.US)}",
                     slot1 = finalSlot1,
