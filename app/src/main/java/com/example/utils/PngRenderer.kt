@@ -17,7 +17,8 @@ object PngRenderer {
     fun renderWeeklyTimetable(
         context: Context,
         weekStartDate: LocalDate,
-        entries: List<TimetableEntry>
+        entries: List<TimetableEntry>,
+        division: String? = null
     ): String {
         // 1. Dimensions
         val width = 1600
@@ -64,7 +65,12 @@ object PngRenderer {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             isAntiAlias = true
         }
-        canvas.drawText("DIVISION A", 80f, 155f, subTitlePaint)
+        val divDisplay = when {
+            !division.isNullOrBlank() -> if (division.startsWith("Division", ignoreCase = true)) division.uppercase(Locale.US) else "DIVISION ${division.uppercase(Locale.US)}"
+            entries.isNotEmpty() -> entries.first().div.uppercase(Locale.US)
+            else -> "DIVISION A"
+        }
+        canvas.drawText(divDisplay, 80f, 155f, subTitlePaint)
 
         // Draw Week Range Text (Aligned Right)
         val weekRangeStr = "Week: ${DateUtils.formatWeekRange(weekStartDate, weekStartDate.plusDays(6))}"

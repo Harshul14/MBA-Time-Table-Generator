@@ -12,6 +12,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.example.MainActivity
+import com.example.R
+import com.example.data.local.AppDatabase
+import com.example.data.repository.TimetableRepository
 
 object NotificationHelper {
 
@@ -28,13 +31,26 @@ object NotificationHelper {
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = CHANNEL_DESC
+                enableVibration(true)
             }
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
         }
     }
 
-    fun showTimetableReadyNotification(context: Context, weekRangeStr: String) {
+    fun showTimetableReadyNotification(context: Context, weekRangeStr: String, division: String? = null) {
+        val resolvedDivision = if (!division.isNullOrBlank()) {
+            division.replace("Division", "", ignoreCase = true).trim()
+        } else {
+            try {
+                val db = AppDatabase.getDatabase(context)
+                val repo = TimetableRepository(db)
+                repo.getSelectedDivision(context)
+            } catch (_: Exception) {
+                "A"
+            }
+        }
+
         // Create channel first
         createNotificationChannel(context)
 
@@ -51,10 +67,15 @@ object NotificationHelper {
         )
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm) // Safe standard notification icon
-            .setContentTitle("MBA Division A Timetable Ready")
-            .setContentText("Your timetable for $weekRangeStr is generated.")
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("MBA Division $resolvedDivision Timetable Ready")
+            .setContentText("Your timetable for $weekRangeStr (Division $resolvedDivision) is generated.")
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText("Your timetable for $weekRangeStr (Division $resolvedDivision) is generated and ready to view.")
+            )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 

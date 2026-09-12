@@ -197,16 +197,20 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
                     val startStr = DateUtils.formatDateToStandard(weekStart)
                     val endStr = DateUtils.formatDateToStandard(weekStart.plusDays(6))
                     _selectedWeekEntries.value = repository.getEntriesForWeek(active.id, startStr, endStr)
-                    _currentGeneratedSchedule.value = repository.getScheduleForWeek(startStr)
+                    _selectedDivision.value = division
+
+                    // Regenerate the timetable image for the new division
+                    generateAndSaveImage(context, active, division)
                 } else {
                     _selectedWeekEntries.value = emptyList()
                     _currentGeneratedSchedule.value = null
+                    _selectedDivision.value = division
                 }
             } catch (e: Exception) {
                 _error.value = "Failed to switch division: ${e.message}"
                 _selectedWeekEntries.value = emptyList()
-            } finally {
                 _selectedDivision.value = division
+            } finally {
                 _isParsing.value = false
             }
         }
@@ -229,6 +233,7 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
                 _availableDivisions.value = result.availableDivisions.ifEmpty { listOf(_selectedDivision.value) }
                 _success.value = "Excel uploaded! MBA Batch 17 ${result.detectedTrimester} (Division ${_selectedDivision.value}) parsed."
                 loadWeekEntriesAndSchedule(result.uploadedFile.id, _viewedWeekStartDate.value)
+                generateAndSaveImage(context, result.uploadedFile, _selectedDivision.value)
             } catch (e: Exception) {
                 _error.value = e.message ?: "Failed to parse uploaded Excel file. Ensure headers are correct."
                 e.printStackTrace()
@@ -246,7 +251,11 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
      * Core PNG generation logic. Deletes the stale image first, then renders and saves a fresh one.
      * Used by both the manual "Generate Now" button and the auto-regen after sync.
      */
-    private suspend fun generateAndSaveImage(context: Context, activeFile: UploadedFile) {
+    private suspend fun generateAndSaveImage(
+        context: Context,
+        activeFile: UploadedFile,
+        targetDivision: String = _selectedDivision.value
+    ) {
         _isRegenerating.value = true
         try {
             val weekStart = _viewedWeekStartDate.value
@@ -264,7 +273,7 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
             }
 
             val pngPath = withContext(Dispatchers.IO) {
-                PngRenderer.renderWeeklyTimetable(context, weekStart, entries)
+                PngRenderer.renderWeeklyTimetable(context, weekStart, entries, targetDivision)
             }
 
             val newSchedule = GeneratedSchedule(
@@ -298,7 +307,7 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
                 val weekStart = _viewedWeekStartDate.value
                 val weekEnd = weekStart.plusDays(6)
                 val weekRangeStr = DateUtils.formatWeekRange(weekStart, weekEnd)
-                NotificationHelper.showTimetableReadyNotification(context, weekRangeStr)
+                NotificationHelper.showTimetableReadyNotification(context, weekRangeStr, _selectedDivision.value)
                 _success.value = "Timetable PNG generated successfully!"
             } catch (e: Exception) {
                 _error.value = "Generation failed: ${e.message}"
