@@ -28,7 +28,7 @@ class TimetableGeneratorWorker(
         var activeFile = repository.getActiveFile()
         if (activeFile == null) {
             try {
-                activeFile = repository.syncFromRemoteUrl(applicationContext)
+                activeFile = repository.syncFromRemoteUrl(applicationContext).uploadedFile
                 Log.d("TimetableWorker", "Successfully synced from SharePoint in background worker.")
             } catch (e: Exception) {
                 Log.e("TimetableWorker", "Background sync from SharePoint failed", e)

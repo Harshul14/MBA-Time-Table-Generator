@@ -23,7 +23,7 @@ import java.time.LocalDate
 
 class TimetableViewModel(private val repository: TimetableRepository) : ViewModel() {
 
-    // Main States
+    // ─── Core data ────────────────────────────────────────────────
     private val _activeFile = MutableStateFlow<UploadedFile?>(null)
     val activeFile: StateFlow<UploadedFile?> = _activeFile.asStateFlow()
 
@@ -42,12 +42,29 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
     private val _currentGeneratedSchedule = MutableStateFlow<GeneratedSchedule?>(null)
     val currentGeneratedSchedule: StateFlow<GeneratedSchedule?> = _currentGeneratedSchedule.asStateFlow()
 
-    // Loading & Messaging states
+    // ─── Dynamic metadata ─────────────────────────────────────────
+    /** Human-readable trimester label, e.g. "Trim II", detected from the Excel file. */
+    private val _detectedTrimester = MutableStateFlow("Trim (Auto)")
+    val detectedTrimester: StateFlow<String> = _detectedTrimester.asStateFlow()
+
+    /** The division letter currently selected by the user, e.g. "A", "B". */
+    private val _selectedDivision = MutableStateFlow("A")
+    val selectedDivision: StateFlow<String> = _selectedDivision.asStateFlow()
+
+    /** All division letters found in the active workbook. */
+    private val _availableDivisions = MutableStateFlow<List<String>>(listOf("A"))
+    val availableDivisions: StateFlow<List<String>> = _availableDivisions.asStateFlow()
+
+    // ─── Loading & messaging states ───────────────────────────────
     private val _isParsing = MutableStateFlow(false)
     val isParsing: StateFlow<Boolean> = _isParsing.asStateFlow()
 
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
+    /** True while the timetable PNG is being auto-regenerated after a sync. */
+    private val _isRegenerating = MutableStateFlow(false)
+    val isRegenerating: StateFlow<Boolean> = _isRegenerating.asStateFlow()
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -68,15 +85,16 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
     fun initPrefs(context: Context) {
         _liveUrl.value = repository.getSavedLiveUrl(context)
         _lastSyncTime.value = repository.getLastSyncTime(context)
+        _detectedTrimester.value = repository.getDetectedTrimester(context)
+        _selectedDivision.value = repository.getSelectedDivision(context)
+        _availableDivisions.value = repository.getAvailableDivisions(context)
     }
 
     private fun loadActiveFileAndSchedule() {
         viewModelScope.launch {
             val active = repository.getActiveFile()
             _activeFile.value = active
-            active?.let {
-                loadWeekEntriesAndSchedule(it.id, _viewedWeekStartDate.value)
-            }
+            active?.let { loadWeekEntriesAndSchedule(it.id, _viewedWeekStartDate.value) }
         }
     }
 
@@ -85,49 +103,47 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
             val weekEnd = weekStart.plusDays(6)
             val startStr = DateUtils.formatDateToStandard(weekStart)
             val endStr = DateUtils.formatDateToStandard(weekEnd)
-
-            val entries = repository.getEntriesForWeek(fileId, startStr, endStr)
-            _selectedWeekEntries.value = entries
-
-            val schedule = repository.getScheduleForWeek(startStr)
-            _currentGeneratedSchedule.value = schedule
+            _selectedWeekEntries.value = repository.getEntriesForWeek(fileId, startStr, endStr)
+            _currentGeneratedSchedule.value = repository.getScheduleForWeek(startStr)
         }
     }
 
     fun changeViewedWeek(offsetWeeks: Long) {
         val newWeekStart = _viewedWeekStartDate.value.plusWeeks(offsetWeeks)
         _viewedWeekStartDate.value = newWeekStart
-        activeFile.value?.let {
-            loadWeekEntriesAndSchedule(it.id, newWeekStart)
-        }
+        activeFile.value?.let { loadWeekEntriesAndSchedule(it.id, newWeekStart) }
     }
 
-    /**
-     * Automatically fetches, downloads and parses timetable from the configured SharePoint URL.
-     */
+    // ─────────────────────────────────────────────────────────────
+    // Sync from SharePoint
+    // ─────────────────────────────────────────────────────────────
+
     fun syncFromLiveLink(context: Context, customUrl: String? = null, isSilent: Boolean = false) {
         viewModelScope.launch {
             _isSyncing.value = !isSilent
-            if (!isSilent) {
-                _error.value = null
-                _success.value = null
-            }
+            if (!isSilent) { _error.value = null; _success.value = null }
 
             val urlToUse = customUrl ?: _liveUrl.value
-
             try {
-                val active = repository.syncFromRemoteUrl(context, urlToUse)
-                _activeFile.value = active
+                val result = repository.syncFromRemoteUrl(context, urlToUse)
+                _activeFile.value = result.uploadedFile
+                _detectedTrimester.value = result.detectedTrimester
+                _availableDivisions.value = result.availableDivisions.ifEmpty { listOf(_selectedDivision.value) }
                 _lastSyncTime.value = repository.getLastSyncTime(context)
+
                 if (!isSilent) {
-                    _success.value = "Timetable synced directly from SharePoint for MBA Batch 17 Trim II (Division A)!"
+                    _success.value = "Synced! MBA Batch 17 ${result.detectedTrimester} (Division ${_selectedDivision.value})"
                 }
-                loadWeekEntriesAndSchedule(active.id, _viewedWeekStartDate.value)
+                loadWeekEntriesAndSchedule(result.uploadedFile.id, _viewedWeekStartDate.value)
+
+                // Feature 2: Auto-regenerate PNG after every sync
+                generateAndSaveImage(context, result.uploadedFile)
+
             } catch (e: Exception) {
                 if (!isSilent) {
                     _error.value = e.message ?: "Failed to sync timetable from SharePoint link."
                 }
-                android.util.Log.e("TimetableViewModel", "Sync from live link failed (silent=$isSilent): ${e.message}", e)
+                android.util.Log.e("TimetableViewModel", "Sync failed (silent=$isSilent): ${e.message}", e)
             } finally {
                 _isSyncing.value = false
             }
@@ -146,8 +162,41 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
     fun resetLiveUrlToDefault(context: Context) {
         repository.setSavedLiveUrl(context, RemoteScheduleFetcher.DEFAULT_SHAREPOINT_URL)
         _liveUrl.value = RemoteScheduleFetcher.DEFAULT_SHAREPOINT_URL
-        _success.value = "Reset to official MBA Batch 17 Trim II link."
+        _success.value = "Reset to official MBA Batch 17 ${_detectedTrimester.value} link."
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // Division selection (Feature 3)
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Switches to a different division, re-parses the active file, and refreshes the week view.
+     */
+    fun selectDivision(context: Context, division: String) {
+        if (division == _selectedDivision.value) return
+        viewModelScope.launch {
+            repository.setSelectedDivision(context, division)
+            _selectedDivision.value = division
+            _isParsing.value = true
+            _error.value = null
+            try {
+                val result = repository.reparseActiveFile(context)
+                if (result != null) {
+                    _detectedTrimester.value = result.detectedTrimester
+                    _availableDivisions.value = result.availableDivisions.ifEmpty { listOf(division) }
+                    _activeFile.value?.let { loadWeekEntriesAndSchedule(it.id, _viewedWeekStartDate.value) }
+                }
+            } catch (e: Exception) {
+                _error.value = "Failed to switch division: ${e.message}"
+            } finally {
+                _isParsing.value = false
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Excel upload
+    // ─────────────────────────────────────────────────────────────
 
     fun uploadExcelFile(context: Context, uri: Uri, fileName: String) {
         viewModelScope.launch {
@@ -155,10 +204,12 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
             _error.value = null
             _success.value = null
             try {
-                val active = repository.importExcelFile(context, uri, fileName)
-                _activeFile.value = active
-                _success.value = "Excel uploaded and MBA Batch 17 Trim II (Division A) parsed successfully."
-                loadWeekEntriesAndSchedule(active.id, _viewedWeekStartDate.value)
+                val result = repository.importExcelFile(context, uri, fileName)
+                _activeFile.value = result.uploadedFile
+                _detectedTrimester.value = result.detectedTrimester
+                _availableDivisions.value = result.availableDivisions.ifEmpty { listOf(_selectedDivision.value) }
+                _success.value = "Excel uploaded! MBA Batch 17 ${result.detectedTrimester} (Division ${_selectedDivision.value}) parsed."
+                loadWeekEntriesAndSchedule(result.uploadedFile.id, _viewedWeekStartDate.value)
             } catch (e: Exception) {
                 _error.value = e.message ?: "Failed to parse uploaded Excel file. Ensure headers are correct."
                 e.printStackTrace()
@@ -167,6 +218,81 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
             }
         }
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // PNG generation
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Core PNG generation logic. Deletes the stale image first, then renders and saves a fresh one.
+     * Used by both the manual "Generate Now" button and the auto-regen after sync.
+     */
+    private suspend fun generateAndSaveImage(context: Context, activeFile: UploadedFile) {
+        _isRegenerating.value = true
+        try {
+            val weekStart = _viewedWeekStartDate.value
+            val weekEnd = weekStart.plusDays(6)
+            val startStr = DateUtils.formatDateToStandard(weekStart)
+            val endStr = DateUtils.formatDateToStandard(weekEnd)
+
+            val entries = repository.getEntriesForWeek(activeFile.id, startStr, endStr)
+            if (entries.isEmpty()) return
+
+            // Delete old PNG to ensure a fresh render
+            _currentGeneratedSchedule.value?.pngPath?.let { old ->
+                val f = File(old)
+                if (f.exists()) f.delete()
+            }
+
+            val pngPath = withContext(Dispatchers.IO) {
+                PngRenderer.renderWeeklyTimetable(context, weekStart, entries)
+            }
+
+            val newSchedule = GeneratedSchedule(
+                weekStartDate = startStr,
+                weekEndDate = endStr,
+                pngPath = pngPath
+            )
+            repository.insertGeneratedSchedule(newSchedule)
+            _currentGeneratedSchedule.value = newSchedule
+
+        } catch (e: Exception) {
+            android.util.Log.e("TimetableViewModel", "Image generation failed: ${e.message}", e)
+        } finally {
+            _isRegenerating.value = false
+        }
+    }
+
+    /** Manual trigger — shows the isParsing loader to the user. */
+    fun generateNow(context: Context) {
+        val active = _activeFile.value ?: run {
+            _error.value = "No schedule active yet. Please sync from SharePoint or upload an Excel sheet."
+            return
+        }
+
+        viewModelScope.launch {
+            _isParsing.value = true
+            _error.value = null
+            _success.value = null
+            try {
+                generateAndSaveImage(context, active)
+                val weekStart = _viewedWeekStartDate.value
+                val weekEnd = weekStart.plusDays(6)
+                val weekRangeStr = DateUtils.formatWeekRange(weekStart, weekEnd)
+                NotificationHelper.showTimetableReadyNotification(context, weekRangeStr)
+                _success.value = "Timetable PNG generated successfully!"
+            } catch (e: Exception) {
+                _error.value = "Generation failed: ${e.message}"
+                e.printStackTrace()
+            } finally {
+                _isParsing.value = false
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Misc
+    // ─────────────────────────────────────────────────────────────
 
     fun deleteFile(fileId: Int) {
         viewModelScope.launch {
@@ -180,55 +306,6 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
         }
     }
 
-    fun generateNow(context: Context) {
-        val active = _activeFile.value
-        if (active == null) {
-            _error.value = "No schedule active yet. Please sync from SharePoint or upload an Excel sheet."
-            return
-        }
-
-        viewModelScope.launch {
-            _isParsing.value = true
-            _error.value = null
-            _success.value = null
-
-            try {
-                val weekStart = _viewedWeekStartDate.value
-                val weekEnd = weekStart.plusDays(6)
-                val startStr = DateUtils.formatDateToStandard(weekStart)
-                val endStr = DateUtils.formatDateToStandard(weekEnd)
-
-                val entries = repository.getEntriesForWeek(active.id, startStr, endStr)
-                if (entries.isEmpty()) {
-                    _error.value = "No classes/schedule records found for Division A in this week."
-                    return@launch
-                }
-
-                val pngPath = withContext(Dispatchers.IO) {
-                    PngRenderer.renderWeeklyTimetable(context, weekStart, entries)
-                }
-
-                val newSchedule = GeneratedSchedule(
-                    weekStartDate = startStr,
-                    weekEndDate = endStr,
-                    pngPath = pngPath
-                )
-                repository.insertGeneratedSchedule(newSchedule)
-                _currentGeneratedSchedule.value = newSchedule
-
-                val weekRangeStr = DateUtils.formatWeekRange(weekStart, weekEnd)
-                NotificationHelper.showTimetableReadyNotification(context, weekRangeStr)
-
-                _success.value = "Timetable PNG generated successfully!"
-            } catch (e: Exception) {
-                _error.value = "Generation failed: ${e.message}"
-                e.printStackTrace()
-            } finally {
-                _isParsing.value = false
-            }
-        }
-    }
-
     fun shareTimetablePng(context: Context, pngPath: String) {
         try {
             val file = File(pngPath)
@@ -236,13 +313,9 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
                 _error.value = "Timetable image does not exist. Please generate it first."
                 return
             }
-
             val contentUri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
+                context, "${context.packageName}.fileprovider", file
             )
-
             val shareIntent = Intent().apply {
                 action = Intent.ACTION_SEND
                 putExtra(Intent.EXTRA_STREAM, contentUri)
@@ -252,21 +325,16 @@ class TimetableViewModel(private val repository: TimetableRepository) : ViewMode
             context.startActivity(Intent.createChooser(shareIntent, "Share Timetable"))
         } catch (e: Exception) {
             _error.value = "Failed to share image: ${e.message}"
-            e.printStackTrace()
         }
     }
 
-    fun clearMessages() {
-        _error.value = null
-        _success.value = null
-    }
+    fun clearMessages() { _error.value = null; _success.value = null }
 
-    fun setError(message: String?) {
-        _error.value = message
-    }
+    fun setError(message: String?) { _error.value = message }
 }
 
-class TimetableViewModelFactory(private val repository: TimetableRepository) : androidx.lifecycle.ViewModelProvider.Factory {
+class TimetableViewModelFactory(private val repository: TimetableRepository) :
+    androidx.lifecycle.ViewModelProvider.Factory {
     override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(TimetableViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")

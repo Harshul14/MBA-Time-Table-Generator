@@ -14,6 +14,15 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Result returned by sync / import operations, exposing metadata detected during parsing.
+ */
+data class SyncResult(
+    val uploadedFile: UploadedFile,
+    val detectedTrimester: String,
+    val availableDivisions: List<String>
+)
+
 class TimetableRepository(private val db: AppDatabase) {
 
     private val uploadedFileDao = db.uploadedFileDao()
@@ -33,6 +42,9 @@ class TimetableRepository(private val db: AppDatabase) {
     suspend fun getEntriesForWeek(fileId: Int, startDate: String, endDate: String): List<TimetableEntry> =
         timetableEntryDao.getEntriesForWeek(fileId, startDate, endDate)
 
+    suspend fun getDistinctDivisions(fileId: Int): List<String> =
+        timetableEntryDao.getDistinctDivisions(fileId)
+
     suspend fun getScheduleForWeek(weekStartDate: String): GeneratedSchedule? =
         generatedScheduleDao.getScheduleForWeek(weekStartDate)
 
@@ -48,107 +60,163 @@ class TimetableRepository(private val db: AppDatabase) {
         generatedScheduleDao.deleteScheduleById(scheduleId)
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // Remote sync
+    // ─────────────────────────────────────────────────────────────
+
     /**
-     * Synchronizes and parses the timetable from a remote SharePoint/OneDrive link.
+     * Downloads and parses the timetable from a remote SharePoint/OneDrive link.
+     * Returns [SyncResult] containing the active file, detected trimester and available divisions.
      */
     suspend fun syncFromRemoteUrl(
         context: Context,
         urlString: String = getSavedLiveUrl(context)
-    ): UploadedFile = withContext(Dispatchers.IO) {
-        // 1. Download file from remote endpoint
+    ): SyncResult = withContext(Dispatchers.IO) {
+        val selectedDiv = getSelectedDivision(context)
+
+        // 1. Download file
         val downloadedFile = RemoteScheduleFetcher.downloadTimetableFile(context, urlString)
 
-        // 2. Prepare database entry
-        val displayName = "MBA Batch 17 Trim II (Live SharePoint)"
-        val newUploadedFile = UploadedFile(
-            fileName = displayName,
+        // 2. Insert a provisional DB entry (name updated after parse below)
+        val provisionalFile = UploadedFile(
+            fileName = "MBA Batch 17 (Live SharePoint)",
             filePath = downloadedFile.absolutePath,
             isActive = true
         )
-
         uploadedFileDao.deactivateAllFiles()
-        val fileId = uploadedFileDao.insertFile(newUploadedFile).toInt()
-        val activeFile = newUploadedFile.copy(id = fileId)
+        val fileId = uploadedFileDao.insertFile(provisionalFile).toInt()
 
-        // 3. Parse entries targeting MBA Batch 17 Trim II, Division A
-        val parsedEntries = try {
-            ExcelParser.parseExcelFile(downloadedFile, fileId)
+        // 3. Parse
+        val parseResult = try {
+            ExcelParser.parseExcelFile(downloadedFile, fileId, selectedDiv)
         } catch (e: Exception) {
             uploadedFileDao.deleteFileById(fileId)
             downloadedFile.delete()
             throw e
         }
 
-        if (parsedEntries.isEmpty()) {
+        if (parseResult.entries.isEmpty()) {
             uploadedFileDao.deleteFileById(fileId)
             downloadedFile.delete()
-            throw IllegalStateException("No valid schedule records found for MBA Batch 17 Trim II (Division A) in the SharePoint document.")
+            throw IllegalStateException(
+                "No valid schedule records found for MBA Batch 17 ${parseResult.detectedTrimester} " +
+                    "(Division $selectedDiv) in the SharePoint document."
+            )
         }
 
-        // 4. Save parsed entries to DB
-        timetableEntryDao.insertEntries(parsedEntries)
+        // 4. Persist entries and update display name with detected trimester
+        timetableEntryDao.insertEntries(parseResult.entries)
+        val trimLabel = parseResult.detectedTrimester
+        val updatedFile = provisionalFile.copy(
+            id = fileId,
+            fileName = "MBA Batch 17 $trimLabel (Live SharePoint)"
+        )
 
-        // 5. Update sync timestamp in preferences
+        // 5. Save prefs
+        setDetectedTrimester(context, trimLabel)
+        setAvailableDivisions(context, parseResult.availableDivisions)
         val nowFormatted = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.US).format(Date())
         setLastSyncTime(context, nowFormatted)
         setSavedLiveUrl(context, urlString)
 
-        return@withContext activeFile
+        return@withContext SyncResult(updatedFile, trimLabel, parseResult.availableDivisions)
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // Local Excel import
+    // ─────────────────────────────────────────────────────────────
 
     /**
-     * Imports an Excel file manually uploaded by the user from local storage.
+     * Imports a manually uploaded Excel file.
+     * Returns [SyncResult] containing the active file, detected trimester and available divisions.
      */
-    suspend fun importExcelFile(context: Context, uri: Uri, fileName: String): UploadedFile = withContext(Dispatchers.IO) {
-        // Copy Excel file to local internal storage
-        val localDir = File(context.filesDir, "excel_sheets")
-        if (!localDir.exists()) {
-            localDir.mkdirs()
-        }
-        val localFile = File(localDir, "${System.currentTimeMillis()}_$fileName")
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            FileOutputStream(localFile).use { output ->
-                input.copyTo(output)
+    suspend fun importExcelFile(context: Context, uri: Uri, fileName: String): SyncResult =
+        withContext(Dispatchers.IO) {
+            val selectedDiv = getSelectedDivision(context)
+
+            // Copy to internal storage
+            val localDir = File(context.filesDir, "excel_sheets").also { it.mkdirs() }
+            val localFile = File(localDir, "${System.currentTimeMillis()}_$fileName")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(localFile).use { output -> input.copyTo(output) }
+            } ?: throw IllegalArgumentException("Could not open file input stream")
+
+            val newUploadedFile = UploadedFile(
+                fileName = fileName,
+                filePath = localFile.absolutePath,
+                isActive = true
+            )
+            uploadedFileDao.deactivateAllFiles()
+            val fileId = uploadedFileDao.insertFile(newUploadedFile).toInt()
+
+            val parseResult = try {
+                ExcelParser.parseExcelFile(localFile, fileId, selectedDiv)
+            } catch (e: Exception) {
+                uploadedFileDao.deleteFileById(fileId)
+                localFile.delete()
+                throw e
             }
-        } ?: throw IllegalArgumentException("Could not open file input stream")
 
-        // Save file entry in database and make it the active one
-        val newUploadedFile = UploadedFile(
-            fileName = fileName,
-            filePath = localFile.absolutePath,
-            isActive = true
-        )
+            if (parseResult.entries.isEmpty()) {
+                uploadedFileDao.deleteFileById(fileId)
+                localFile.delete()
+                throw IllegalStateException(
+                    "No valid schedule records found for MBA Batch 17 ${parseResult.detectedTrimester} " +
+                        "(Division $selectedDiv) in the uploaded Excel."
+                )
+            }
 
-        // Deactivate all files and insert this one as active
-        uploadedFileDao.deactivateAllFiles()
-        val fileId = uploadedFileDao.insertFile(newUploadedFile).toInt()
-        val activeFile = newUploadedFile.copy(id = fileId)
+            timetableEntryDao.insertEntries(parseResult.entries)
 
-        // Parse and import timetable entries
-        val parsedEntries = try {
-            ExcelParser.parseExcelFile(localFile, fileId)
+            val trimLabel = parseResult.detectedTrimester
+            setDetectedTrimester(context, trimLabel)
+            setAvailableDivisions(context, parseResult.availableDivisions)
+
+            val activeFile = newUploadedFile.copy(id = fileId)
+            return@withContext SyncResult(activeFile, trimLabel, parseResult.availableDivisions)
+        }
+
+    // ─────────────────────────────────────────────────────────────
+    // Re-parse active file (used when division changes)
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Re-parses the currently active local file with the new [selectedDivision].
+     * Returns null if no active file exists or the file is missing.
+     */
+    suspend fun reparseActiveFile(context: Context): SyncResult? = withContext(Dispatchers.IO) {
+        val active = getActiveFile() ?: return@withContext null
+        val file = File(active.filePath)
+        if (!file.exists()) return@withContext null
+
+        val selectedDiv = getSelectedDivision(context)
+        val parseResult = try {
+            ExcelParser.parseExcelFile(file, active.id, selectedDiv)
         } catch (e: Exception) {
-            uploadedFileDao.deleteFileById(fileId)
-            localFile.delete()
-            throw e
+            return@withContext null
         }
 
-        if (parsedEntries.isEmpty()) {
-            uploadedFileDao.deleteFileById(fileId)
-            localFile.delete()
-            throw IllegalStateException("No valid schedule records found for MBA Batch 17 Trim II (Division A) in the uploaded Excel.")
-        }
+        if (parseResult.entries.isEmpty()) return@withContext null
 
-        // Insert into database
-        timetableEntryDao.insertEntries(parsedEntries)
+        timetableEntryDao.deleteEntriesForFile(active.id)
+        timetableEntryDao.insertEntries(parseResult.entries)
 
-        return@withContext activeFile
+        setDetectedTrimester(context, parseResult.detectedTrimester)
+        setAvailableDivisions(context, parseResult.availableDivisions)
+
+        return@withContext SyncResult(active, parseResult.detectedTrimester, parseResult.availableDivisions)
     }
 
-    // Shared Preferences Helpers
+    // ─────────────────────────────────────────────────────────────
+    // SharedPreferences helpers
+    // ─────────────────────────────────────────────────────────────
+
     private val PREFS_NAME = "timetable_sync_prefs"
     private val KEY_LIVE_URL = "key_live_sharepoint_url"
     private val KEY_LAST_SYNC_TIME = "key_last_sync_time"
+    private val KEY_DETECTED_TRIMESTER = "key_detected_trimester"
+    private val KEY_SELECTED_DIVISION = "key_selected_division"
+    private val KEY_AVAILABLE_DIVISIONS = "key_available_divisions"
 
     fun getSavedLiveUrl(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -157,17 +225,45 @@ class TimetableRepository(private val db: AppDatabase) {
     }
 
     fun setSavedLiveUrl(context: Context, url: String) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putString(KEY_LIVE_URL, url).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_LIVE_URL, url).apply()
     }
 
-    fun getLastSyncTime(context: Context): String? {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_LAST_SYNC_TIME, null)
-    }
+    fun getLastSyncTime(context: Context): String? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_LAST_SYNC_TIME, null)
 
     fun setLastSyncTime(context: Context, timeStr: String) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putString(KEY_LAST_SYNC_TIME, timeStr).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_LAST_SYNC_TIME, timeStr).apply()
+    }
+
+    fun getDetectedTrimester(context: Context): String =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_DETECTED_TRIMESTER, "Trim (Auto)") ?: "Trim (Auto)"
+
+    fun setDetectedTrimester(context: Context, trimester: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_DETECTED_TRIMESTER, trimester).apply()
+    }
+
+    fun getSelectedDivision(context: Context): String =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_SELECTED_DIVISION, "A") ?: "A"
+
+    fun setSelectedDivision(context: Context, division: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_SELECTED_DIVISION, division).apply()
+    }
+
+    fun getAvailableDivisions(context: Context): List<String> {
+        val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_AVAILABLE_DIVISIONS, "A") ?: "A"
+        return raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.sorted()
+    }
+
+    fun setAvailableDivisions(context: Context, divisions: List<String>) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_AVAILABLE_DIVISIONS, divisions.joinToString(",")).apply()
     }
 }

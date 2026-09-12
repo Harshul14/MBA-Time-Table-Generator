@@ -43,6 +43,9 @@ interface TimetableEntryDao {
 
     @Query("DELETE FROM timetable_entries WHERE fileId = :fileId")
     suspend fun deleteEntriesForFile(fileId: Int)
+
+    @Query("SELECT DISTINCT div FROM timetable_entries WHERE fileId = :fileId ORDER BY div ASC")
+    suspend fun getDistinctDivisions(fileId: Int): List<String>
 }
 
 @Dao
